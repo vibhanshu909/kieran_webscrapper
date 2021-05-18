@@ -1,68 +1,21 @@
-import inquirer from "inquirer";
-import ora from "ora";
-import { bandcampScrapper } from "./bandcamp";
-import { depopScrapper } from "./depop";
+import { build } from "./server";
 
-enum Website {
-  BANDCAMP,
-  BIG_CARTEL,
-  DEPOP,
-}
+const PORT = 4444;
 
-(async () => {
-  const { website, ID } = await inquirer.prompt<{
-    website: Website;
-    ID: string;
-  }>([
-    {
-      type: "list",
-      name: "website",
-      message: "Select Website",
-      choices: [
-        {
-          name: "Bandcamp",
-          value: Website.BANDCAMP,
-        },
-        {
-          name: "Big Cartel",
-          value: Website.BIG_CARTEL,
-          disabled: "Not Yet Available",
-        },
-        {
-          name: "Depop",
-          value: Website.DEPOP,
-        },
-      ],
-    },
-    {
-      type: "input",
-      name: "ID",
-      message: "Provide the ID",
-      validate: function (value) {
-        if (value) {
-          return true;
-        }
-        return "Please enter a valid ID";
-      },
-    },
-  ]);
+const start = async () => {
+  const server = build();
 
-  const spinner = ora("Scrapping").start();
   try {
-    switch (website) {
-      case Website.BANDCAMP:
-        await bandcampScrapper(ID);
-        break;
-      case Website.BIG_CARTEL:
-        console.log("Not yet implemented");
-        break;
-      case Website.DEPOP:
-        await depopScrapper(ID);
-        break;
-    }
-  } catch (error) {
-    console.error(error);
-  } finally {
-    spinner.stop();
+    await server.listen(PORT);
+
+    const address = server.server.address();
+    const port = typeof address === "string" ? address : address?.port;
+
+    console.log("Listening on port", port);
+  } catch (err) {
+    server.log.error(err);
+    process.exit(1);
   }
-})();
+};
+
+start();

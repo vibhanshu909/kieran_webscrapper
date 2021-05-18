@@ -1,7 +1,6 @@
-import fs from "fs";
 import fetch from "node-fetch";
 import puppeteer from "puppeteer";
-import { Product } from "./types";
+import type { ProductType } from "./types";
 
 export interface Price {
   currencyName: string;
@@ -48,7 +47,12 @@ export interface ResponseProduct {
   videos: any[];
   likeCount: number;
   seller: Seller;
-  colour: Colour[];
+  sizes?: {
+    id: number;
+    name: Exclude<ProductType["size"], "unknown">;
+    quantity: number;
+  }[];
+  colour?: Colour[];
 }
 
 async function fetchProducts(shopId: string, offsetId?: string) {
@@ -62,7 +66,9 @@ async function fetchProducts(shopId: string, offsetId?: string) {
   }>((res) => res.json());
 }
 
-export const depopScrapper = async (ID: string) => {
+export const depopScrapper = async (
+  ID: string
+): Promise<Partial<ProductType>[]> => {
   const browser = await puppeteer.launch();
   const page = (await browser.pages())[0];
   await page.goto(`https://www.depop.com/${ID}/`);
@@ -84,31 +90,31 @@ export const depopScrapper = async (ID: string) => {
     offset_id = meta.last_offset_id;
   }
 
-  const products = (
+  return (
     await Promise.allSettled(
       slugs.map(async (slug) => {
-        const { price, description, pictures, quantity } = await fetch(
+        const { price, description, pictures, quantity, sizes } = await fetch(
           `https://webapi.depop.com/api/v2/product/${slug}/?lang=en`
         ).then<ResponseProduct>((res) => res.json());
 
         return {
+          name: "unknown",
           currency: price.currencyName,
           price: parseFloat(price.priceAmount),
           quantity: quantity ?? "unknown",
           shipping: {
-            internationalShippingCost: parseFloat(
-              price.internationalShippingCost
-            ),
-            nationalShippingCost: parseFloat(price.nationalShippingCost),
+            international:
+              parseFloat(price.internationalShippingCost) || "unknown",
+            national: parseFloat(price.nationalShippingCost) || "unknown",
           },
           description: description.replace(/\s+\n*/gm, " ").trim(),
-          primaryImage: pictures[0].slice(-1)[0].url,
+          image: pictures[0].slice(-1)[0].url,
           otherImages: pictures
             .slice(1)
             .map((picture) => picture.slice(-1)[0].url),
-          size: "unknown",
+          size: sizes?.[0].name || "unknown",
           type: "unknown",
-        } as Product;
+        } as Partial<ProductType>;
       })
     )
   ).reduce((prev, res) => {
@@ -116,7 +122,5 @@ export const depopScrapper = async (ID: string) => {
       prev.push(res.value);
     }
     return prev;
-  }, [] as Product[]);
-
-  fs.writeFileSync(`products.json`, JSON.stringify(products, null, 2));
+  }, [] as Partial<ProductType>[]);
 };

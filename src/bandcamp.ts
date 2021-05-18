@@ -1,10 +1,25 @@
-import cheerio from "cheerio";
-import fs from "fs";
+import cheerio, { CheerioAPI, Element } from "cheerio";
 import fetch from "node-fetch";
 import puppeteer from "puppeteer";
-import { Product } from "./types";
+import type { ProductType } from "./types";
 
-export const bandcampScrapper = async (ID: string) => {
+const primaryImage = ($: CheerioAPI, merchGridLI: Element) => {
+  const img = $("img", merchGridLI);
+  return (img.attr("data-original") || img.attr("src"))?.replace(
+    /_\w+./,
+    "_10."
+  );
+};
+
+const type = ($: CheerioAPI, merchGridLI: Element) => {
+  const mimeType = $("div", merchGridLI).text();
+  const [_, type] = mimeType.split("/");
+  return (type || _).replace(/\n*\s*/gm, "");
+};
+
+export const bandcampScrapper = async (
+  ID: string
+): Promise<Partial<ProductType>[]> => {
   const BASE_URL = `https://${ID}.bandcamp.com`;
   const URL = `${BASE_URL}/merch`;
   const browser = await puppeteer.launch();
@@ -18,18 +33,9 @@ export const bandcampScrapper = async (ID: string) => {
     .map((_, el) => ({
       href: $("a", el).attr("href"),
       data: {
-        primaryImage: (() => {
-          const img = $("img", el);
-          return (img.attr("data-original") || img.attr("src"))?.replace(
-            /_\w+./,
-            "_10."
-          );
-        })(),
-        type: (() => {
-          const mimeType = $("div", el).text();
-          const [_, type] = mimeType.split("/");
-          return (type || _).replace(/\n*\s*/gm, "");
-        })(),
+        name: $("a > p.title", el).text().replace(/\s+/g, " ").trim(),
+        image: primaryImage($, el),
+        type: type($, el),
         price:
           parseFloat($("p.price > span.price", el).text().trim().slice(1)) ||
           "unknown",
@@ -39,63 +45,65 @@ export const bandcampScrapper = async (ID: string) => {
         description: "",
         otherImages: [],
         size: "unknown",
-      } as Product,
+      } as Partial<ProductType>,
     }))
     .toArray();
 
-  const products = (
+  return (
     await Promise.allSettled(
-      partialPayload.map(({ href, data }) => {
+      partialPayload.map(async ({ href, data }) => {
         const fn = href?.includes("merch")
           ? scrapeMerchProductPage
           : scrapeAlbumProductPage;
-        return fn(href as string, data as Product);
+        const patched = await fn(`${BASE_URL}${href}`);
+        return { ...data, ...patched };
       })
     )
   ).reduce((prev, res) => {
     if (res.status === "fulfilled") {
-      prev.push(res.value);
+      return [...prev, res.value];
+    } else if (res.status === "rejected") {
+      console.error("Rejected status", res.reason);
     }
+
     return prev;
-  }, [] as Product[]);
+  }, [] as Partial<ProductType>[]);
+};
 
-  fs.writeFileSync("products.json", JSON.stringify(products, null, 2));
+async function scrapeMerchProductPage(
+  link: string
+): Promise<Partial<ProductType>> {
+  const $ = cheerio.load(await fetch(link).then((res) => res.text()));
+  const item = $("#merch-item");
 
-  async function scrapeMerchProductPage(link: string, product: Product) {
-    const $ = cheerio.load(
-      await fetch(`${BASE_URL}${link}`).then((res) => res.text())
-    );
-
-    const item = $("#merch-item");
-
-    product.description = item
+  return {
+    description: item
       .find("div.column.info > p")
       .text()
       .replace(/\s+\n*/gm, " ")
-      .trim();
+      .trim(),
 
-    product.quantity = parseInt(
+    quantity: parseInt(
       item.find("div.buy > div:nth-child(2) > span").text().match(/\d+/)?.[0] ??
         "0"
-    );
+    ),
 
-    product.otherImages = item
+    otherImages: item
       .find("div.column.art.popupImageGallery > ul > li > a")
       .map((_, el) => el.attribs["href"])
-      .toArray();
-    return product;
-  }
+      .toArray(),
+  };
+}
 
-  async function scrapeAlbumProductPage(link: string, product: Product) {
-    const $ = cheerio.load(
-      await fetch(`${BASE_URL}${link}`).then((res) => res.text())
-    );
+async function scrapeAlbumProductPage(
+  link: string
+): Promise<Partial<ProductType>> {
+  const $ = cheerio.load(await fetch(link).then((res) => res.text()));
 
-    product.description = $("#trackInfoInner > div.tralbumData.tralbum-credits")
+  return {
+    description: $("#trackInfoInner > div.tralbumData.tralbum-credits")
       .text()
       .replace(/\s+\n*/gm, " ")
-      .trim();
-
-    return product;
-  }
-};
+      .trim(),
+  };
+}
