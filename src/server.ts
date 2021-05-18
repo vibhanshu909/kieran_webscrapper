@@ -1,6 +1,7 @@
 import { Type } from "@sinclair/typebox";
 import Fastify, { FastifyInstance, RouteShorthandOptions } from "fastify";
 import { bandcampScrapper } from "./bandcamp";
+import { bigCartelScrapper } from "./bigCartel";
 import { depopScrapper } from "./depop";
 import { Product, ProductType } from "./types";
 
@@ -22,6 +23,7 @@ export const build = () => {
   > = {
     "/bandcamp": bandcampScrapper,
     "/depop": depopScrapper,
+    "/bigcartel": bigCartelScrapper,
   };
 
   server.get(

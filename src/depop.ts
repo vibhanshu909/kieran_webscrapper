@@ -1,5 +1,5 @@
+import cheerio from "cheerio";
 import fetch from "node-fetch";
-import puppeteer from "puppeteer";
 import type { ProductType } from "./types";
 
 export interface Price {
@@ -69,15 +69,13 @@ async function fetchProducts(shopId: string, offsetId?: string) {
 export const depopScrapper = async (
   ID: string
 ): Promise<Partial<ProductType>[]> => {
-  const browser = await puppeteer.launch();
-  const page = (await browser.pages())[0];
-  await page.goto(`https://www.depop.com/${ID}/`);
+  const BASE_URL = `https://www.depop.com/${ID}/`;
 
-  const NEXT_DATA = await page.evaluate(
-    () =>
-      document.querySelector("body > script#__NEXT_DATA__")?.textContent || ""
-  );
-  await browser.close();
+  const $ = cheerio.load(await fetch(BASE_URL).then((res) => res.text()));
+
+  const NEXT_DATA = ($("body > script#__NEXT_DATA__").get(0).children[0] as any)
+    .data;
+
   const shopId = JSON.parse(NEXT_DATA).props.pageProps.shop.id;
 
   const slugs: string[] = [];
